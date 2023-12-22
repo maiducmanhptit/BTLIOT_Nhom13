@@ -1,0 +1,228 @@
+
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Face Recognition Access Control</title>
+<style>
+@media only screen and (max-width: 768px) {
+    #content-left, #content-right {
+        width: 100%;
+        float: none;
+    }
+}
+
+body {
+    background: linear-gradient(to right, #6dd5ed, #2193b0);
+    color: #fff;
+}
+
+.card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    color: #333;
+    padding: 20px;
+    margin: 10px;
+    transition: transform 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+}
+
+#content-left {
+    width: 60%;
+    float: left;
+    padding: 20px;
+}
+
+#content-right {
+    width: 40%;
+    float: right;
+    padding: 20px;
+}
+
+#status-display {
+    background: #4CAF50;
+}
+
+button:hover {
+    background-color: #b30027;
+    transform: scale(1.05);
+}
+
+button {
+    background: transparent;
+    border: 2px solid #fff;
+    color: #fff;
+    border-radius: 30px;
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    outline: none;
+}
+
+.delete {
+    background: #ff5252;
+}
+
+.stream {
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+ul {
+    background: #fff;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+.container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 10px;
+}
+
+li {
+    border-bottom: 1px solid #eee;
+    padding: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+h3 {
+    color: #c8ff00;
+}
+
+</style>
+</head>
+<body>
+<div id="content-left">
+  <div id="stream-container" class="image-container"> <img id="stream" src=""> </div>
+</div>
+<div id="content-right">
+  <div id="status-display"> <span id="current-status"></span> </div>
+  <div id="person-name">
+    <input id="person" type="text" value="" placeholder="Type the person's name here">
+  </div>
+  <div class="buttons">
+    <button id="button-stream" class="left">STREAM CAMERA</button>
+    <button id="button-detect" class="right">DETECT FACES</button>
+  </div>
+  <div class="buttons">
+    <button id="button-capture" class="left" title="Enter a name above before capturing a face">ADD USER</button>
+    <button id="button-recognise" class="right">ACCESS CONTROL</button>
+  </div>
+  <div class="people">
+    <h3>Captured Faces</h3>
+    <ul>
+    </ul>
+  </div>
+  <div class="buttons">
+    <button id="delete_all">DELETE ALL</button>
+  </div>
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function(event) {
+  var baseHost = document.location.origin;
+  var streamUrl = baseHost + ":81";
+  const WS_URL = "ws://" + window.location.host + ":82";
+  const ws = new WebSocket(WS_URL);
+
+  const view = document.getElementById("stream");
+  const personFormField = document.getElementById("person");
+  const streamButton = document.getElementById("button-stream");
+  const detectButton = document.getElementById("button-detect");
+  const captureButton = document.getElementById("button-capture");
+  const recogniseButton = document.getElementById("button-recognise");
+  const deleteAllButton = document.getElementById("delete_all");
+
+  // gain, frequency, duration
+  a=new AudioContext();
+  function alertSound(w,x,y){
+    v=a.createOscillator();
+    u=a.createGain();
+    v.connect(u);
+    v.frequency.value=x;
+    v.type="square";
+    u.connect(a.destination);
+    u.gain.value=w*0.01;
+    v.start(a.currentTime);
+    v.stop(a.currentTime+y*0.001);
+  }
+
+  ws.onopen = () => {
+    console.log(`Connected to ${WS_URL}`);
+  };
+  ws.onmessage = message => {
+    if (typeof message.data === "string") {
+      if (message.data.substr(0, 8) == "listface") {
+        addFaceToScreen(message.data.substr(9));
+      } else if (message.data == "delete_faces") {
+        deleteAllFacesFromScreen();
+      } else if (message.data == "door_open") {
+          alertSound(10,233,100); alertSound(3,603,200);
+      } else {
+          document.getElementById("current-status").innerHTML = message.data;
+          document.getElementById("status-display").style.background = "green";
+      }
+    }
+    if (message.data instanceof Blob) {
+      var urlObject = URL.createObjectURL(message.data);
+      view.src = urlObject;
+    }
+  }
+
+  streamButton.onclick = () => {
+    ws.send("stream");
+  };
+  detectButton.onclick = () => {
+    ws.send("detect");
+  };
+  captureButton.onclick = () => {
+    person_name = document.getElementById("person").value;
+    ws.send("capture:" + person_name);
+  };
+  recogniseButton.onclick = () => {
+    ws.send("recognise");
+  };
+  deleteAllButton.onclick = () => {
+    ws.send("delete_all");
+  };
+  personFormField.onkeyup = () => {
+    captureButton.disabled = false;
+  };
+
+  function deleteAllFacesFromScreen() {
+    // deletes face list in browser only
+    const faceList = document.querySelector("ul");
+    while (faceList.firstChild) {
+      faceList.firstChild.remove();
+    }
+    personFormField.value = "";
+    captureButton.disabled = true;
+  }
+
+  function addFaceToScreen(person_name) {
+    const faceList = document.querySelector("ul");
+    let listItem = document.createElement("li");
+    let closeItem = document.createElement("span");
+    closeItem.classList.add("delete");
+    closeItem.id = person_name;
+    closeItem.addEventListener("click", function() {
+      ws.send("remove:" + person_name);
+    });
+    listItem.appendChild(
+      document.createElement("strong")
+    ).textContent = person_name;
+    listItem.appendChild(closeItem).textContent = "X";
+    faceList.appendChild(listItem);
+  }
+
+  captureButton.disabled = true;
+});
+</script>
+</body>
+</html>
